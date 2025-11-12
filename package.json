@@ -13,7 +13,7 @@
     "axios": "^1.6.8",
     "express": "^4.19.2",
     "qrcode": "^1.5.3",
-    "whatsapp-web.js": "https_github_com_Julzk_whatsapp-web_js_store",
+    "whatsapp-web.js": "github:Julzk/whatsapp-web.js#store",
     "dotenv": "^16.4.5"
   }
 }
