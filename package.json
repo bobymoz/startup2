@@ -1,0 +1,19 @@
+{
+  "name": "jinoca-bot-render",
+  "version": "1.0.0",
+  "description": "WhatsApp AI Bot",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.8",
+    "express": "^4.19.2",
+    "qrcode": "^1.5.3",
+    "whatsapp-web.js": "https_github_com_Julzk_whatsapp-web_js_store",
+    "dotenv": "^16.4.5"
+  }
+}
