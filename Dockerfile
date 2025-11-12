@@ -9,7 +9,6 @@ RUN apt-get update \
     ca-certificates \
     procps \
     # Dependências do Chrome
-    libgconf-service-3 \
     libasound2 \
     libatk1.0-0 \
     libc6 \
@@ -46,7 +45,6 @@ RUN apt-get update \
     libnss3-dev \
     libxss1 \
     libappindicator1 \
-    libindicator7 \
     fonts-liberation \
     xdg-utils \
     && rm -rf /var/lib/apt/lists/*
