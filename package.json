@@ -4,11 +4,10 @@
   "description": "WhatsApp AI Bot com Baileys",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js",
-    "dev": "nodemon index.js"
+    "start": "node index.js"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": "18.x.x"
   },
   "dependencies": {
     "@whiskeysockets/baileys": "^6.7.2",
