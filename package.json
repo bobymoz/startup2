@@ -4,8 +4,8 @@
   "description": "WhatsApp AI Bot com Baileys",
   "main": "index.js",
   "scripts": {
-    "start": "node index.js | pino-pretty",
-    "dev": "nodemon index.js | pino-pretty"
+    "start": "node index.js",
+    "dev": "nodemon index.js"
   },
   "engines": {
     "node": ">=18.0.0"
