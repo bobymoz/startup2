@@ -23,17 +23,15 @@ const AI_MODEL = "cognitivecomputations/dolphin-mistral-24b-venice-edition:free"
 
 // --- Variáveis de Estado ---
 let qrCodeDataUrl = null;
-let botStatus = 'Iniciando...';
+let botStatus = 'Iniciando...'; // Agora também usado para exibir erros
 let isAuthenticated = false;
-let sock = null; // Variável para armazenar o socket do Baileys
+let sock = null;
 
-const logger = pino({ level: 'info' });
+// Logger principal definido como 'silent' para economizar memória
+const logger = pino({ level: 'silent' });
 
-// --- Lógica da IA (Mesma de antes) ---
+// --- Lógica da IA (Inalterada) ---
 
-/**
- * Lida com a geração de texto da IA
- */
 async function handleTextMessage(msg, jid, history) {
     const systemPrompt = `Você é Jinoca. Você SÓ responde em português brasileiro.
 Sua personalidade é arrogante, sarcástica, safada e brincalhona.
@@ -46,8 +44,6 @@ Seu único nome é Jinoca.`;
         { role: 'system', content: systemPrompt }
     ];
 
-    // Mapeia o histórico para o formato do OpenRouter
-    // O histórico do Baileys já vem ordenado (o mais antigo primeiro)
     for (const message of history) {
         if (message.key.fromMe) {
             messages.push({ role: 'assistant', content: message.message?.conversation || message.message?.extendedTextMessage?.text });
@@ -56,16 +52,14 @@ Seu único nome é Jinoca.`;
         }
     }
     
-    // Adiciona a mensagem atual (que não está no histórico ainda)
     messages.push({ role: 'user', content: msg.message?.conversation || msg.message?.extendedTextMessage?.text });
 
-    // 3. Chamar a API OpenRouter
     try {
         const response = await axios.post(
             'https://openrouter.ai/api/v1/chat/completions',
             {
                 model: AI_MODEL,
-                messages: messages.filter(m => m.content), // Filtra mensagens vazias
+                messages: messages.filter(m => m.content),
             },
             {
                 headers: {
@@ -81,17 +75,16 @@ Seu único nome é Jinoca.`;
         await sock.sendMessage(jid, { text: aiResponse });
 
     } catch (error) {
-        console.error('Erro na API OpenRouter:', error.response ? error.response.data : error.message);
+        logger.error('Erro na API OpenRouter:', error.response ? error.response.data : error.message);
+        // Define o status de erro para a UI
+        botStatus = `Erro na IA: ${error.message}`;
         await sock.sendMessage(jid, { text: 'Tô ocupada agora, fofo. 💅' });
     }
 }
 
-/**
- * Lida com a geração de imagem
- */
 async function handleImageGeneration(msg, jid) {
     const text = msg.message?.conversation || msg.message?.extendedTextMessage?.text || "";
-    const prompt = text.substring(6).trim(); // Remove "image "
+    const prompt = text.substring(6).trim();
     
     if (!prompt) {
         await sock.sendMessage(jid, { text: 'Tem que me dizer o que desenhar, né? 🙄' });
@@ -102,17 +95,18 @@ async function handleImageGeneration(msg, jid) {
 
     try {
         const response = await axios.get(`${IMAGE_GEN_API_URL}${encodeURIComponent(prompt)}`, {
-            responseType: 'arraybuffer' // Recebe a imagem como dados binários
+            responseType: 'arraybuffer'
         });
         
-        // Baileys envia direto o Buffer, não precisa de Base64
         await sock.sendMessage(jid, {
             image: Buffer.from(response.data, 'binary'),
             caption: 'Toma. Vê se me deixa em paz agora. 😒'
         });
 
     } catch (error) {
-        console.error('Erro na API de Imagem:', error.message);
+        logger.error('Erro na API de Imagem:', error.message);
+        // Define o status de erro para a UI
+        botStatus = `Erro na Imagem: ${error.message}`;
         await sock.sendMessage(jid, { text: 'Deu pau na minha arte. Tenta um desenho mais fácil. 🤷‍♀️' });
     }
 }
@@ -121,7 +115,6 @@ async function handleImageGeneration(msg, jid) {
 
 async function connectToWhatsApp() {
     // Limpa a pasta de autenticação a cada reinício
-    // Isso FORÇA um novo QR code, essencial para o Render
     if (fs.existsSync('./auth_info')) {
         fs.rmSync('./auth_info', { recursive: true, force: true });
     }
@@ -137,9 +130,9 @@ async function connectToWhatsApp() {
             creds: state.creds,
             keys: makeCacheableSignalKeyStore(state.keys, pino({ level: 'silent' })),
         },
-        logger: pino({ level: 'silent' }),
-        printQRInTerminal: false, // Não queremos o QR no terminal, vamos expor via web
-        browser: Browsers.macOS('Desktop'), // Simula um navegador
+        logger: pino({ level: 'silent' }), // Logger do Baileys em 'silent'
+        printQRInTerminal: false,
+        browser: Browsers.macOS('Desktop'),
     });
 
     // Lida com a conexão
@@ -155,15 +148,19 @@ async function connectToWhatsApp() {
 
         if (connection === 'close') {
             isAuthenticated = false;
-            const shouldReconnect = (lastDisconnect.error)?.output?.statusCode !== 401; // 401 = Logout
+            const statusCode = (lastDisconnect.error)?.output?.statusCode;
+            const shouldReconnect = statusCode !== 401; // 401 = Logout
             
             if (shouldReconnect) {
                 logger.warn('Conexão fechada, reconectando...', lastDisconnect.error);
-                botStatus = 'Desconectado. Reconectando...';
-                setTimeout(connectToWhatsApp, 5000); // Tenta reconectar
+                // Define o status de erro para a UI
+                botStatus = `Desconectado: ${lastDisconnect.error?.message || 'Erro desconhecido'}. Reconectando...`;
+                setTimeout(connectToWhatsApp, 5000);
             } else {
-                logger.error('Conexão fechada permanentemente (Logout). Limpe a pasta auth_info e reinicie.');
-                botStatus = 'Erro crítico (401). Faça o deploy novamente.';
+                logger.error('Conexão fechada permanentemente (Logout).');
+                // Define o status de erro para a UI
+                botStatus = 'Erro crítico (401): Logout forçado. Você precisa fazer o deploy novamente para limpar a sessão.';
+                qrCodeDataUrl = null; // Limpa o QR
             }
         } else if (connection === 'open') {
             logger.info('Conexão aberta!');
@@ -180,41 +177,30 @@ async function connectToWhatsApp() {
     sock.ev.on('messages.upsert', async (m) => {
         const msg = m.messages[0];
         
-        // Ignora mensagens sem texto, de broadcast, de status ou de grupos
         if (!msg.message || msg.key.fromMe || msg.key.remoteJid === 'status@broadcast' || msg.key.remoteJid.endsWith('@g.us')) {
             return;
         }
 
-        const jid = msg.key.remoteJid; // ID do chat
+        const jid = msg.key.remoteJid;
         
-        // Define "digitando"
         await sock.sendPresenceUpdate('composing', jid);
 
         try {
             const text = (msg.message?.conversation || msg.message?.extendedTextMessage?.text || "").toLowerCase();
 
             if (text.startsWith('image ')) {
-                // --- Lógica de Geração de Imagem ---
                 await handleImageGeneration(msg, jid);
             } else {
-                // --- Lógica de Geração de Texto ---
-                
-                // Baileys não tem um "fetchMessages" fácil.
-                // Para simplificar, vamos enviar sem histórico por enquanto.
-                // Para implementar histórico, precisaríamos de um banco de dados.
-                // Vamos focar em fazer funcionar primeiro.
-                
-                // MOCK de histórico (para a função funcionar)
-                const history = []; 
-                
+                const history = []; // Histórico desativado para economizar memória
                 await handleTextMessage(msg, jid, history);
             }
 
         } catch (error) {
             logger.error('Erro ao processar mensagem:', error);
+            // Define o status de erro para a UI
+            botStatus = `Erro na Mensagem: ${error.message}`;
             await sock.sendMessage(jid, { text: 'Ih, deu ruim. Tenta de novo, anjo. 🙄' });
         } finally {
-            // Limpa o "digitando"
             await sock.sendPresenceUpdate('available', jid);
         }
     });
@@ -227,7 +213,7 @@ app.set('view engine', 'ejs');
 app.use(express.static('public'));
 
 app.get('/', (req, res) => {
-    // Renderiza a mesma página HTML de antes
+    // HTML modificado com lógica para exibir erros
     res.send(`
         <!DOCTYPE html>
         <html lang="pt-br">
@@ -238,12 +224,12 @@ app.get('/', (req, res) => {
             <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
             <style>
                 body { font-family: system-ui, sans-serif; display: grid; place-items: center; min-height: 100vh; background: #f4f4f5; color: #18181b; margin: 0; }
-                .container { background: #ffffff; padding: 2rem; border-radius: 1rem; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); text-align: center; }
+                .container { background: #ffffff; padding: 2rem; border-radius: 1rem; box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1); text-align: center; max-width: 90%; width: 500px; }
                 h1 { margin-top: 0; }
-                #status { font-size: 1.1rem; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 0.5rem; }
+                #status { font-size: 1.1rem; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 0.5rem; word-wrap: break-word; }
                 #qr-container { margin-top: 1rem; }
                 #qr-image { width: 300px; height: 300px; border: 1px solid #e4e4e7; border-radius: 8px; }
-                .material-symbols-outlined { font-size: 1.2em; }
+                .material-symbols-outlined { font-size: 1.2em; flex-shrink: 0; }
                 .loading { color: #f97316; }
                 .error { color: #ef4444; }
                 .success { color: #22c55e; }
@@ -273,8 +259,7 @@ app.get('/', (req, res) => {
                     try {
                         const response = await fetch('/status');
                         const data = await response.json();
-
-                        statusText.textContent = data.status;
+                        const statusLower = data.status.toLowerCase();
 
                         if (data.isAuthenticated) {
                             setStatus(data.status, 'check_circle', 'success');
@@ -282,12 +267,17 @@ app.get('/', (req, res) => {
                         } else if (data.qr) {
                             setStatus('Escaneie o QR Code abaixo:', 'qr_code_scanner', 'loading');
                             qrContainer.innerHTML = '<img id="qr-image" src="' + data.qr + '" alt="QR Code">';
+                        } else if (statusLower.includes('erro') || statusLower.includes('falha') || statusLower.includes('crítico')) {
+                            // Detecta erros e exibe
+                            setStatus(data.status, 'error', 'error');
+                            qrContainer.innerHTML = '';
                         } else {
+                            // Status padrão (Iniciando, Reconectando, etc)
                             setStatus(data.status, 'sync', 'loading');
                             qrContainer.innerHTML = '';
                         }
                     } catch (error) {
-                        setStatus('Erro ao buscar status.', 'error', 'error');
+                        setStatus('Erro de conexão com o servidor.', 'error', 'error');
                     }
                 }
                 
@@ -312,9 +302,10 @@ app.get('/status', (req, res) => {
 
 app.listen(PORT, () => {
     logger.info(`Servidor rodando na porta ${PORT}`);
-    logger.info(`Acesse http://localhost:${PORT} para ver o status.`);
+    
     connectToWhatsApp().catch(err => {
         logger.error('Falha crítica ao iniciar:', err);
-        botStatus = 'Erro ao inicializar. Verifique os logs.';
+        // Define o status de erro para a UI
+        botStatus = `Erro crítico ao iniciar: ${err.message}`;
     });
 });
